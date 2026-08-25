@@ -426,31 +426,39 @@ async function renderMeusModulos(){
 // bloqueio abaixo (acesso_autorizado local) é só defesa em
 // profundidade de UX — a RPC recusaria de qualquer forma.
 async function acessarModulo(moduleId){
+  console.log('[SSO DEBUG 01] módulo selecionado:', moduleId);
   const restaurar=_protegerBotao('btnAcessar-'+moduleId, 'Verificando...');
   try{
     const r = await buscarModulosLiberados();
     const modulo = r.ok ? r.modulos.find(m=>m.module_id===moduleId) : null;
+    console.log('[SSO DEBUG 02] módulo encontrado:', modulo ? modulo.module_id : null);
     if(!modulo){
+      console.error('[SSO PATIO ERROR] módulo não encontrado na lista de liberados:', moduleId);
       mostrarMensagem('Seu acesso a este módulo não está disponível.');
       await renderMeusModulos(); // reflete o estado real (some da tela se foi bloqueado)
       return;
     }
+    console.log('[SSO DEBUG 03] acesso_autorizado:', modulo.acesso_autorizado);
     if(modulo.acesso_autorizado!==true){
       // item 6/7: empresa possui o módulo, mas ESTE usuário não tem
       // autorização individual — modal específico, nunca a tela de
       // login do módulo, nunca gera handoff.
+      console.error('[SSO PATIO ERROR] usuário sem acesso_autorizado individual para este módulo.');
       mostrarModalAcessoNaoAutorizado();
       return;
     }
+    console.log('[SSO DEBUG 04] execution_url:', modulo.execution_url || null);
     if(!modulo.execution_url){
+      console.error('[SSO PATIO ERROR] módulo autorizado, mas sem execution_url cadastrada no catálogo — handoff nunca chega a ser gerado.');
       mostrarMensagem('Este módulo ainda não possui endereço de execução publicado.');
       return;
     }
+    console.log('[SSO DEBUG 05] chamando gerar_handoff_modulo com p_modulo=', moduleId);
     const { data: token, error } = await supabaseClient.rpc('gerar_handoff_modulo', {
       p_session_token: SESSAO.sessionToken, p_modulo: moduleId,
     });
     if(error){
-      console.error('[ECOSYSTEM] erro ao gerar handoff:', error);
+      console.error('[SSO PATIO ERROR] erro ao gerar handoff:', {code:error.code, message:error.message, details:error.details, hint:error.hint});
       mostrarMensagem('Não foi possível validar sua sessão. Tente novamente.');
       return;
     }
@@ -458,18 +466,22 @@ async function acessarModulo(moduleId){
       // O backend é sempre a autoridade final — se ele recusar mesmo
       // com acesso_autorizado local dizendo true (ex.: revogado entre
       // o carregamento da lista e o clique), o mesmo modal se aplica.
+      console.error('[SSO PATIO ERROR] gerar_handoff_modulo retornou vazio — backend recusou apesar do acesso_autorizado local.');
       mostrarModalAcessoNaoAutorizado();
       return;
     }
+    console.log('[SSO DEBUG 06] handoff gerado:', String(token).slice(0,8)+'…'); // nunca o token completo
     await logCliente('MODULO_ACESSADO','company_id='+SESSAO.companyId+' modulo='+moduleId, SESSAO.companyId);
-    // item 9: mesma aba; o módulo recebe só o token (uso único,
-    // expira em minutos), nunca senha, nunca company_id/login "soltos"
-    // como prova de identidade — o módulo valida o token no Supabase
-    // antes de estabelecer sua própria sessão.
+    // item 9 (sprint anterior): mesma aba; o módulo recebe só o token
+    // (uso único, expira em minutos), nunca senha, nunca company_id/
+    // login "soltos" como prova de identidade — o módulo valida o
+    // token no Supabase antes de estabelecer sua própria sessão.
     const separador = modulo.execution_url.includes('?') ? '&' : '?';
-    window.location.href = modulo.execution_url + separador + 'handoff=' + encodeURIComponent(token);
+    const urlDestino = modulo.execution_url + separador + 'handoff=' + encodeURIComponent(token);
+    console.log('[SSO DEBUG 07] URL final:', modulo.execution_url + separador + 'handoff='+String(token).slice(0,8)+'…');
+    window.location.href = urlDestino;
   }catch(e){
-    console.error('[ECOSYSTEM] erro ao acessar módulo:', e);
+    console.error('[SSO PATIO ERROR] erro inesperado ao acessar módulo:', e);
     mostrarMensagem('Serviço temporariamente indisponível. Tente novamente.');
   }finally{ restaurar(); }
 }
