@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {STAGES,createOperation,createTasks,transition,canStart,eventKey} from './engine.mjs';
+const operation=createOperation({id:'op1',company_id:'tenant1',unit_id:'unit1',direction:'inbound',reference:'NF1'});
+test('generates inbound tasks with ordered dependencies',()=>{const t=createTasks(operation);assert.equal(t.length,4);assert.equal(t[0].stage,'gate');assert.deepEqual(t[1].depends_on,['op1:gate']);});
+test('prevents skipping workflow states',()=>assert.throws(()=>transition({id:'1',status:'planned'},'completed',{actor:'u1'})));
+test('requires reason to block',()=>assert.throws(()=>transition({id:'1',status:'ready'},'blocked',{actor:'u1'})));
+test('records actor and timestamp',()=>{const r=transition({id:'1',status:'ready'},'in_progress',{actor:'u1',at:'2026-11-05T00:00:00Z'});assert.equal(r.event.actor,'u1');assert.equal(r.task.started_at,'2026-11-05T00:00:00Z');});
+test('enforces dependency completion',()=>{const t=createTasks(operation);t[1].status='ready';assert.equal(canStart(t[1],t),false);t[0].status='completed';assert.equal(canStart(t[1],t),true);});
+test('stable event deduplication key',()=>assert.equal(eventKey({tenant_id:'a',source:'wms',event_id:'123'}),'a:wms:123'));
+test('outbound has five stages',()=>assert.equal(STAGES.outbound.length,5));
